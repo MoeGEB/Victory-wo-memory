@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Victory without the use of memory</title>
+  <style>
+    :root{--size:90px;--gap:24px}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;margin:20px;background:#f7f8fb;color:#111;display:flex;flex-direction:column;gap:20px}
+    h1{font-size:20px;margin:0 0 8px}
+    .main{flex:1;min-width:0;display:flex;flex-direction:column}
+    .controls{display:flex;gap:8px;align-items:center;margin-top:16px;flex-wrap:wrap;}
+    button,input{cursor:pointer;padding:10px 14px;border-radius:8px;border:1px solid #ccc;background:#fff}
+    input{width:60px;text-align:center;margin-right:8px}
+    .board{display:grid;grid-template-columns:repeat(6, var(--size));grid-auto-rows:var(--size);gap:var(--gap);background:transparent;padding:8px;justify-content:space-evenly}
+    .cell{display:flex;align-items:center;justify-content:center;font-weight:700;font-size:48px;background:#fff;border-radius:6px;border:2px solid #e6e8ee;position:relative;user-select:none}
+    .cell button{all:unset;display:block;width:100%;height:100%;text-align:center;padding:6px;border-radius:4px;font-size:48px;font-weight:bold;cursor:pointer}
+    .cell button:hover:not(:disabled){background:rgba(0,0,0,0.05)}
+    .cell button:disabled{cursor:not-allowed;opacity:0.6}
+    .claimed{box-shadow:0 0 0 3px rgba(0,0,0,0.02) inset}
+    .p1{border-color:#2b6df6;background:linear-gradient(180deg, rgba(43,109,246,0.05), #fff)}
+    .p2{border-color:#e55a5a;background:linear-gradient(180deg, rgba(229,90,90,0.05), #fff)}
+    .announce{margin-top:8px;padding:10px;border-radius:10px;font-size:20px;font-weight:bold;text-align:center}
+    .p1-turn{color:#2b6df6;}
+    .p2-turn{color:#e55a5a;}
+    .winner-p1{background:#d4edff;color:#2b6df6;}
+    .winner-p2{background:#ffe4e4;color:#e55a5a;}
+    .content{display:flex;flex-direction:row;gap:40px}
+    table.rounds{border-collapse:collapse;width:260px;background:#fffacd;border:1px solid #ddd;border-radius:8px;overflow:hidden;font-size:21px;margin-left:20px}
+    table.rounds th,table.rounds td{border:1px solid #ddd;padding:6px 10px;text-align:center}
+    table.rounds th{background:#f1f3f7;font-size:14px}
+    #sidebar{flex:0 0 auto}
+    #history{margin-top:20px;}
+    #historyList{display:flex;flex-wrap:wrap;gap:10px;}
+    #historyList > div{flex:1 0 auto;}
+    .history-controls{margin-top:10px;display:flex;gap:10px;}
+    #toggleHistoryBtn{margin-top:10px;}
+    .history-game{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px;margin-bottom:12px;}
+    .history-game h4{margin:0 0 8px;font-size:14px;color:#666;}
+  </style>
+</head>
+<body>
+  <div class="main">
+    <h1>Victory without the use of memory</h1>
+
+    <div class="controls">
+      <label>Start:<input type="number" id="startNum" value="0"></label>
+      <label>End:<input type="number" id="endNum" value="17"></label>
+      <button id="setBoardBtn" type="button">Set Board</button>
+      <button id="resetBtn" type="button">Reset</button>
+      <button id="captureBtn" type="button">Capture Table</button>
+      <!-- New end game button -->
+      <button id="endGameBtn" type="button">End Game</button>
+    </div>
+
+    <div class="content">
+      <div class="board" id="board" role="grid" aria-label="Numbers board"></div>
+
+      <div id="sidebar">
+        <table class="rounds" id="roundTable">
+          <thead>
+            <tr><th>Turn</th><th>Player 1</th><th>Player 2</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="announce" id="announce"><span class="p1-turn">Player 1's turn</span></div>
+
+    <button id="toggleHistoryBtn" type="button">Hide History</button>
+    <div id="history">
+      <h3>History</h3>
+      <div id="historyList"></div>
+      <div class="history-controls">
+        <button id="downloadHistoryBtn" type="button">Download History</button>
+        <button id="clearHistoryBtn" type="button">Clear History</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const board = document.getElementById('board');
+    const announceEl = document.getElementById('announce');
+    const roundTableBody = document.querySelector('#roundTable tbody');
+    const startNumInput = document.getElementById('startNum');
+    const endNumInput = document.getElementById('endNum');
+    const setBoardBtn = document.getElementById('setBoardBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const captureBtn = document.getElementById('captureBtn');
+    const toggleHistoryBtn = document.getElementById('toggleHistoryBtn');
+    const historyDiv = document.getElementById('history');
+    const historyList = document.getElementById('historyList');
+    const downloadHistoryBtn = document.getElementById('downloadHistoryBtn');
+    const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+    const endGameBtn = document.getElementById('endGameBtn'); // reference new button
+
+    let currentPlayer = 1;
+    let gameOver = false;
+    let startNum = 0;
+    let endNum = 17;
+    let claimed = {};
+    let turnNumber = 1;
+    let p1Moves = [];
+    let p2Moves = [];
+    let gameHistory = [];
+
+    function initBoard() {
+      board.innerHTML = '';
+      claimed = {};
+      currentPlayer = 1;
+      gameOver = false;
+      turnNumber = 1;
+      p1Moves = [];
+      p2Moves = [];
+      roundTableBody.innerHTML = '';
+
+      startNum = parseInt(startNumInput.value) || 0;
+      endNum = parseInt(endNumInput.value) || 17;
+
+      for (let i = startNum; i <= endNum; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+
+        const btn = document.createElement('button');
+        btn.textContent = i;
+        btn.dataset.num = i;
+        btn.onclick = () => claimNumber(i);
+
+        cell.appendChild(btn);
+        board.appendChild(cell);
+      }
+
+      // Reset announcement properly
+      announceEl.className = 'announce';
+      updateAnnouncement();
+
+      // ensure board buttons enabled
+      Array.from(board.querySelectorAll('button')).forEach(b => b.disabled = false);
+    }
+
+    function claimNumber(num) {
+      if (gameOver || claimed[num]) return;
+
+      claimed[num] = currentPlayer;
+
+      const cell = board.querySelector(`button[data-num="${num}"]`).parentElement;
+      cell.classList.add('claimed', currentPlayer === 1 ? 'p1' : 'p2');
+      cell.querySelector('button').disabled = true;
+
+      if (currentPlayer === 1) {
+        p1Moves.push(num);
+      } else {
+        p2Moves.push(num);
+      }
+
+      updateRoundTable();
+
+      // Check if all numbers are claimed
+      const totalNumbers = endNum - startNum + 1;
+      if (Object.keys(claimed).length === totalNumbers) {
+        gameOver = true;
+        const p1Score = calculateScore(1);
+        const p2Score = calculateScore(2);
+
+        if (p1Score > p2Score) {
+          announceEl.innerHTML = `<span class="winner-p1">Player 1 wins!</span>`;
+          saveGameToHistory(1);
+        } else if (p2Score > p1Score) {
+          announceEl.innerHTML = `<span class="winner-p2">Player 2 wins!</span>`;
+          saveGameToHistory(2);
+        } else {
+          announceEl.innerHTML = `<span>It's a tie!</span>`;
+          saveGameToHistory(0);
+        }
+        // disable remaining buttons
+        Array.from(board.querySelectorAll('button')).forEach(btn => btn.disabled = true);
+      } else {
+        currentPlayer = currentPlayer === 1 ? 2 : 1;
+        if (currentPlayer === 1) turnNumber++;
+        updateAnnouncement();
+      }
+    }
+
+    function calculateScore(player) {
+      const nums = Object.keys(claimed).filter(k => claimed[k] === player).map(Number);
+
+      if (nums.length < 3) return 0;
+
+      let winningCombos = 0;
+      for (let i = 0; i < nums.length - 2; i++) {
+        for (let j = i + 1; j < nums.length - 1; j++) {
+          for (let k = j + 1; k < nums.length; k++) {
+            if (nums[i] + nums[j] + nums[k] === 17) {
+              winningCombos++;
+            }
+          }
+        }
+      }
+      return winningCombos;
+    }
+
+    function checkWin(player) {
+      const nums = Object.keys(claimed).filter(k => claimed[k] === player).map(Number);
+
+      if (nums.length < 3) return false;
+
+      for (let i = 0; i < nums.length - 2; i++) {
+        for (let j = i + 1; j < nums.length - 1; j++) {
+          for (let k = j + 1; k < nums.length; k++) {
+            if (nums[i] + nums[j] + nums[k] === 17) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    }
+
+    function updateAnnouncement() {
+      if (!gameOver) {
+        announceEl.innerHTML = `<span class="p${currentPlayer}-turn">Player ${currentPlayer}'s turn</span>`;
+      }
+    }
+
+    function updateRoundTable() {
+      roundTableBody.innerHTML = '';
+      const maxTurns = Math.max(p1Moves.length, p2Moves.length);
+
+      for (let i = 0; i < maxTurns; i++) {
+        const row = document.createElement('tr');
+
+        const turnCell = document.createElement('td');
+        turnCell.textContent = i + 1;
+        row.appendChild(turnCell);
+
+        const p1Cell = document.createElement('td');
+        p1Cell.textContent = p1Moves[i] !== undefined ? p1Moves[i] : '';
+        row.appendChild(p1Cell);
+
+        const p2Cell = document.createElement('td');
+        p2Cell.textContent = p2Moves[i] !== undefined ? p2Moves[i] : '';
+        row.appendChild(p2Cell);
+
+        roundTableBody.appendChild(row);
+      }
+    }
+
+    // Save game to history with optional winner override (0 = tie)
+    function saveGameToHistory(winnerOverride = currentPlayer) {
+      const gameData = {
+        timestamp: new Date().toLocaleString(),
+        winner: winnerOverride,
+        p1Moves: [...p1Moves],
+        p2Moves: [...p2Moves],
+        startNum,
+        endNum
+      };
+      gameHistory.push(gameData);
+      displayHistory();
+    }
+
+    function displayHistory() {
+      if (gameHistory.length === 0) {
+        historyList.innerHTML = '<p style="color:#999;text-align:center;padding:20px;">No games played yet</p>';
+        return;
+      }
+
+      historyList.innerHTML = '';
+      gameHistory.forEach((game, idx) => {
+        const gameDiv = document.createElement('div');
+        gameDiv.className = 'history-game';
+        let winnerText;
+        if (game.winner === 0) {
+          winnerText = `It's a tie!`;
+        } else {
+          winnerText = `Player ${game.winner}`;
+        }
+        gameDiv.innerHTML = `
+          <h4>Game ${idx + 1} - ${game.timestamp}</h4>
+          <p><strong>Winner:</strong> ${winnerText}</p>
+          <p><strong>Range:</strong> ${game.startNum} - ${game.endNum}</p>
+          <p><strong>P1 Moves:</strong> ${game.p1Moves.join(', ')}</p>
+          <p><strong>P2 Moves:</strong> ${game.p2Moves.join(', ')}</p>
+        `;
+        historyList.appendChild(gameDiv);
+      });
+    }
+
+    setBoardBtn.onclick = () => {
+      initBoard();
+    };
+
+    resetBtn.onclick = () => {
+      initBoard();
+    };
+
+    captureBtn.onclick = () => {
+      const table = document.getElementById('roundTable').outerHTML;
+      const blob = new Blob([table], { type: 'text/html' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `game-table-${Date.now()}.html`;
+      a.click();
+    };
+
+    toggleHistoryBtn.onclick = () => {
+      if (historyDiv.style.display === 'none') {
+        historyDiv.style.display = 'block';
+        toggleHistoryBtn.textContent = 'Hide History';
+      } else {
+        historyDiv.style.display = 'none';
+        toggleHistoryBtn.textContent = 'Show History';
+      }
+    };
+
+    downloadHistoryBtn.onclick = () => {
+      if (gameHistory.length === 0) {
+        alert('No game history to download');
+        return;
+      }
+      const text = gameHistory.map((game, idx) => {
+        const winnerStr = game.winner === 0 ? `It's a tie!` : `Player ${game.winner}`;
+        return `Game ${idx + 1} - ${game.timestamp}\nWinner: ${winnerStr}\nRange: ${game.startNum} - ${game.endNum}\nPlayer 1 Moves: ${game.p1Moves.join(', ')}\nPlayer 2 Moves: ${game.p2Moves.join(', ')}\n-------------------`;
+      }).join('\n\n');
+
+      const blob = new Blob([text], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `game-history-${Date.now()}.txt`;
+      a.click();
+    };
+
+    clearHistoryBtn.addEventListener('click', function() {
+      console.log('Clear button clicked, current history length:', gameHistory.length);
+      if (gameHistory.length === 0) {
+        alert('No history to clear');
+        return;
+      }
+      if (confirm('Clear all game history?')) {
+        gameHistory.length = 0; // Alternative way to clear array
+        historyList.innerHTML = '<p style="color:#999;text-align:center;padding:20px;">No games played yet</p>';
+        console.log('History cleared, new length:', gameHistory.length);
+      }
+    });
+
+    // New event listener for end game button
+    endGameBtn.onclick = () => {
+      // do nothing if game already over
+      if (gameOver) return;
+      // the current player forfeits, so other player wins
+      const winner = currentPlayer === 1 ? 2 : 1;
+      gameOver = true;
+      // disable all remaining number buttons
+      Array.from(board.querySelectorAll('button')).forEach(btn => btn.disabled = true);
+      // show message
+      // Show a simple winner announcement without the "by forfeit" suffix
+      if (winner === 1) {
+        announceEl.innerHTML = `<span class="winner-p1">Player 1 wins!</span>`;
+      } else {
+        announceEl.innerHTML = `<span class="winner-p2">Player 2 wins!</span>`;
+      }
+      // save game with winner override
+      saveGameToHistory(winner);
+    };
+
+    initBoard();
+  </script>
+</body>
+</html>
