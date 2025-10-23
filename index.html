@@ -51,6 +51,8 @@
       <button id="captureBtn" type="button">Capture Table</button>
       <!-- New end game button -->
       <button id="endGameBtn" type="button">End Game</button>
+      <!-- New undo button -->
+      <button id="undoBtn" type="button" disabled>Undo</button>
     </div>
 
     <div class="content">
@@ -94,6 +96,7 @@
     const downloadHistoryBtn = document.getElementById('downloadHistoryBtn');
     const clearHistoryBtn = document.getElementById('clearHistoryBtn');
     const endGameBtn = document.getElementById('endGameBtn'); // reference new button
+    const undoBtn = document.getElementById('undoBtn'); // reference undo button
 
     let currentPlayer = 1;
     let gameOver = false;
@@ -104,6 +107,8 @@
     let p1Moves = [];
     let p2Moves = [];
     let gameHistory = [];
+    // Stack to keep track of move order for undo functionality
+    let moveStack = [];
 
     function initBoard() {
       board.innerHTML = '';
@@ -113,6 +118,8 @@
       turnNumber = 1;
       p1Moves = [];
       p2Moves = [];
+      // reset move stack when initializing a new board
+      moveStack = [];
       roundTableBody.innerHTML = '';
 
       startNum = parseInt(startNumInput.value) || 0;
@@ -137,6 +144,9 @@
 
       // ensure board buttons enabled
       Array.from(board.querySelectorAll('button')).forEach(b => b.disabled = false);
+
+      // disable undo button at start since no moves have been made
+      undoBtn.disabled = true;
     }
 
     function claimNumber(num) {
@@ -153,6 +163,10 @@
       } else {
         p2Moves.push(num);
       }
+      // record this move in the move stack for undo
+      moveStack.push({ player: currentPlayer, num });
+      // enable undo button since at least one move exists
+      undoBtn.disabled = false;
 
       updateRoundTable();
 
@@ -362,6 +376,68 @@
       }
       // save game with winner override
       saveGameToHistory(winner);
+    };
+
+    // Event listener for undo button
+    undoBtn.onclick = () => {
+      // if no moves or board has never been played, do nothing
+      if (moveStack.length === 0) return;
+      // if the game was over (either by board full or forfeit), remove last history entry and reset gameOver flag
+      if (gameOver) {
+        if (gameHistory.length > 0) {
+          gameHistory.pop();
+          displayHistory();
+        }
+        gameOver = false;
+      }
+      // retrieve last move
+      const last = moveStack.pop();
+      const { player, num } = last;
+
+      // remove the claim record
+      delete claimed[num];
+      // revert cell appearance and enable its button
+      const cell = board.querySelector(`button[data-num="${num}"]`).parentElement;
+      cell.classList.remove('claimed', 'p1', 'p2');
+      const buttonEl = cell.querySelector('button');
+      buttonEl.disabled = false;
+
+      // remove number from the respective player's move array
+      if (player === 1) {
+        if (p1Moves.length && p1Moves[p1Moves.length - 1] === num) {
+          p1Moves.pop();
+        } else {
+          const idx = p1Moves.lastIndexOf(num);
+          if (idx > -1) p1Moves.splice(idx, 1);
+        }
+        // revert currentPlayer to the player who made the undone move
+        currentPlayer = 1;
+        // Player 1's move does not increment turnNumber when made, so turnNumber remains unchanged
+      } else {
+        if (p2Moves.length && p2Moves[p2Moves.length - 1] === num) {
+          p2Moves.pop();
+        } else {
+          const idx = p2Moves.lastIndexOf(num);
+          if (idx > -1) p2Moves.splice(idx, 1);
+        }
+        // revert currentPlayer to player 2
+        currentPlayer = 2;
+        // Player 2's move increments turnNumber when finishing the move; revert that increment
+        if (turnNumber > 1) turnNumber--;
+      }
+      // update the round table display
+      updateRoundTable();
+      // update announcement to show whose turn it is now
+      updateAnnouncement();
+      // if there are no more moves after undo, disable undo button
+      undoBtn.disabled = moveStack.length === 0;
+      // ensure unclaimed buttons are enabled (they might have been disabled during game over)
+      Array.from(board.querySelectorAll('button')).forEach(btnEl => {
+        const numVal = btnEl.dataset.num;
+        if (!claimed[numVal]) {
+          btnEl.disabled = false;
+        }
+      });
     };
 
     initBoard();
